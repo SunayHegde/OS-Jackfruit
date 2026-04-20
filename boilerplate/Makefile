@@ -1,41 +1,38 @@
-obj-m += monitor.o
+CC      = gcc
+CFLAGS  = -Wall -Wextra -O2 -pthread
+KDIR   ?= /lib/modules/$(shell uname -r)/build
 
-KDIR := /lib/modules/$(shell uname -r)/build
-PWD := $(shell pwd)
-# If you want host-built workload binaries to run directly inside an Alpine
-# rootfs, you can override this with WORKLOAD_LDFLAGS=-static when your
-# toolchain supports it.
-WORKLOAD_LDFLAGS ?= -static
+USER_TARGETS = engine cpu_hog memory_hog io_pulse
 
-USER_TARGETS := engine memory_hog cpu_hog io_pulse
+.PHONY: all clean load unload
 
-all: $(USER_TARGETS) module
-
-ci: WORKLOAD_LDFLAGS =
-ci: $(USER_TARGETS)
-
-module: monitor.ko
+all: $(USER_TARGETS) monitor.ko
 
 engine: engine.c monitor_ioctl.h
-	gcc -O2 -Wall -Wextra -o engine engine.c -lpthread
-
-memory_hog: memory_hog.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o memory_hog memory_hog.c
+	$(CC) $(CFLAGS) -o engine engine.c -pthread
 
 cpu_hog: cpu_hog.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o cpu_hog cpu_hog.c
+	$(CC) $(CFLAGS) -o cpu_hog cpu_hog.c
+
+memory_hog: memory_hog.c
+	$(CC) $(CFLAGS) -o memory_hog memory_hog.c
 
 io_pulse: io_pulse.c
-	gcc -O2 -Wall $(WORKLOAD_LDFLAGS) -o io_pulse io_pulse.c
+	$(CC) $(CFLAGS) -o io_pulse io_pulse.c
+
+obj-m := monitor.o
 
 monitor.ko: monitor.c monitor_ioctl.h
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
+	@echo "[OK] monitor.ko built"
+
+load:
+	sudo insmod monitor.ko
+	@ls -l /dev/container_monitor
+
+unload:
+	sudo rmmod monitor || true
 
 clean:
-	if [ -d "$(KDIR)" ]; then $(MAKE) -C $(KDIR) M=$(PWD) clean; fi
-	rm -f $(USER_TARGETS) *.o *.mod *.mod.c *.symvers *.order
-	rm -f *.log
-	rm -rf logs
-	rm -f /tmp/mini_runtime.sock
-
-.PHONY: all ci module clean
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f $(USER_TARGETS) *.o
